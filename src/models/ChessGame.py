@@ -1,7 +1,8 @@
+import numpy as np
 from chess import BLACK, PIECE_TYPES, WHITE, Board, Color, PieceType
 from pydantic import BaseModel, ConfigDict
 
-from config import chess_settings
+from config import chess_logger, chess_settings
 from src.utils.board_position import squares_center_occupation_value_dict
 
 
@@ -95,25 +96,32 @@ class ChessGame(BaseModel):
 
         enemy_material_score = self._score_player_materials_value(not color)
         player_material_score = self._score_player_materials_value(color)
-        player_offensive_threat = self._score_player_threat(color)
-        player_defensive_vulnerability = self._score_player_threat(not color)
-        player_center_occupation = self._score_player_center_occupation(color)
+        self._score_player_threat(color)
+        self._score_player_threat(not color)
+        self._score_player_center_occupation(color)
 
         score = (
             ponderation[0] * enemy_material_score
             + ponderation[1] * player_material_score
-            + ponderation[2] * player_offensive_threat
-            + ponderation[3] * player_defensive_vulnerability
-            + ponderation[4] * player_center_occupation
+            # + ponderation[2] * player_offensive_threat
+            # + ponderation[3] * player_defensive_vulnerability
+            # + ponderation[4] * player_center_occupation
         )
 
-        return (
-            score
-            if not (
-                self.board.is_seventyfive_moves() or self.board.is_fivefold_repetition()
-            )
-            else -100
+        chess_logger.info(
+            f"""
+            enemy_material_score {ponderation[0]} * {enemy_material_score} = {ponderation[0] * enemy_material_score}
+            enemy_material_score {ponderation[1]} * {player_material_score} = {ponderation[1] * player_material_score}
+            """
         )
+
+        if self.board.is_seventyfive_moves() or self.board.is_fivefold_repetition():
+            return 0
+
+        if self.board.is_checkmate():
+            return np.inf
+
+        return score
 
     def _best_provided_moves(
         self, moves, color: Color, ponderation: list[float] = [-1, 1, 0.5, -0.5, 0.5]
@@ -125,9 +133,6 @@ class ChessGame(BaseModel):
 
         for move in moves:
             self.board.push(move)
-            if self.board.is_checkmate():
-                self.board.pop()
-                return move
             cand_score = self.score(color, ponderation)
             if cand_score > best_score_cand:
                 best_cand = move
@@ -146,19 +151,18 @@ if __name__ == "__main__":
     game.board.push_san("e4d5")
     game.board.push_san("d8d5")
     game.board.push_san("f1c4")
-    game.board.push_san("d5d2")
 
-    print(f"{game._score_player_threat(WHITE)=}")
-    print(f"{game._score_player_threat(BLACK)=}")
+    chess_logger.info(f"{game._score_player_threat(WHITE)=}")
+    chess_logger.info(f"{game._score_player_threat(BLACK)=}")
 
-    print(f"{game._score_player_center_occupation(WHITE)=}")
-    print(f"{game._score_player_center_occupation(BLACK)=}")
+    chess_logger.info(f"{game._score_player_center_occupation(WHITE)=}")
+    chess_logger.info(f"{game._score_player_center_occupation(BLACK)=}")
 
-    print(f"{game._score_player_materials_value(WHITE)=}")
-    print(f"{game._score_player_materials_value(BLACK)=}")
+    chess_logger.info(f"{game._score_player_materials_value(WHITE)=}")
+    chess_logger.info(f"{game._score_player_materials_value(BLACK)=}")
 
-    print(f"{game.score(WHITE)=}")
-    print(f"{game.score(BLACK)=}")
+    chess_logger.info(f"{game.score(WHITE)=}")
+    chess_logger.info(f"{game.score(BLACK)=}")
 
     all_legal_moves = list(game.board.legal_moves)
-    print(f"{game._best_provided_moves(all_legal_moves, game.board.turn)=}")
+    chess_logger.info(f"{game._best_provided_moves(all_legal_moves, game.board.turn)=}")
