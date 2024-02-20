@@ -1,5 +1,5 @@
 import numpy as np
-from chess import BLACK, PIECE_TYPES, WHITE, Board, Color, PieceType
+from chess import PIECE_TYPES, Board, Color, Move, PieceType
 from pydantic import BaseModel, ConfigDict
 
 from config import chess_logger, chess_settings
@@ -96,23 +96,23 @@ class ChessGame(BaseModel):
 
         enemy_material_score = self._score_player_materials_value(not color)
         player_material_score = self._score_player_materials_value(color)
-        self._score_player_threat(color)
-        self._score_player_threat(not color)
-        self._score_player_center_occupation(color)
+        player_offensive_threat = self._score_player_threat(color)
+        player_defensive_vulnerability = self._score_player_threat(not color)
+        player_center_occupation = self._score_player_center_occupation(color)
 
         score = (
             ponderation[0] * enemy_material_score
             + ponderation[1] * player_material_score
-            # + ponderation[2] * player_offensive_threat
-            # + ponderation[3] * player_defensive_vulnerability
-            # + ponderation[4] * player_center_occupation
+            + ponderation[2] * player_offensive_threat
+            + ponderation[3] * player_defensive_vulnerability
+            + ponderation[4] * player_center_occupation
         )
 
         chess_logger.info(
-            f"""
-            enemy_material_score {ponderation[0]} * {enemy_material_score} = {ponderation[0] * enemy_material_score}
-            enemy_material_score {ponderation[1]} * {player_material_score} = {ponderation[1] * player_material_score}
-            """
+            f"enemy_material_score {ponderation[0]} * {enemy_material_score} = {ponderation[0] * enemy_material_score}"
+        )
+        chess_logger.info(
+            f"player_material_score {ponderation[1]} * {player_material_score} = {ponderation[1] * player_material_score}"
         )
 
         if self.board.is_seventyfive_moves() or self.board.is_fivefold_repetition():
@@ -124,15 +124,31 @@ class ChessGame(BaseModel):
         return score
 
     def _best_provided_moves(
-        self, moves, color: Color, ponderation: list[float] = [-1, 1, 0.5, -0.5, 0.5]
+        self,
+        moves: list[Move],
+        color: Color,
+        ponderation: list[float] = [-1, 1, 0.5, -0.5, 0.5],
     ):
+        """
+        Find the best move from a list of provided moves.
+
+        Args:
+            moves (list): A list of moves to choose from.
+            color (Color): The color of the player making the move.
+            ponderation (list, optional): A list of ponderation values for scoring. Defaults to [-1, 1, 0.5, -0.5, 0.5].
+
+        Returns:
+            The best move from the provided list.
+        """
         best_cand = moves[0]
+        chess_logger.info(best_cand.uci())
         self.board.push(best_cand)
         best_score_cand = self.score(color, ponderation)
         self.board.pop()
 
-        for move in moves:
+        for move in moves[1:]:
             self.board.push(move)
+            chess_logger.info(move.uci())
             cand_score = self.score(color, ponderation)
             if cand_score > best_score_cand:
                 best_cand = move
@@ -141,6 +157,48 @@ class ChessGame(BaseModel):
             self.board.pop()
 
         return best_cand
+
+    def play_ai_move(self):
+        """
+        Play an AI move in the chess game.
+
+        This method selects the best move for the AI player based on the current position of the chessboard.
+        It evaluates all legal moves and chooses the move with the highest score.
+        The score is calculated using the position evaluation function, which takes into account factors such as material value, threats, and center occupation.
+
+        Returns:
+            None
+
+        Raises:
+            None
+        """
+        all_legal_moves = list(self.board.legal_moves)
+        best_move = self._best_provided_moves(all_legal_moves, self.current_turn)
+        self.board.push(best_move)
+        self.current_turn = not self.current_turn
+
+    def play_human_move(self, san_string: str):
+        """
+        Play a move made by a human player in the chess game.
+
+        This method takes a string representation of a move in Standard Algebraic Notation (SAN) and applies it to the chessboard.
+        It first retrieves all legal moves for the current position and logs them using the chess logger.
+        Then, it pushes the move to the chessboard using the push_san() method.
+        Finally, it updates the current turn to the opposite color.
+
+        Args:
+            san_string (str): The move to be played in Standard Algebraic Notation (SAN).
+
+        Returns:
+            None
+
+        Raises:
+            None
+        """
+        all_legal_moves = list(self.board.legal_moves)
+        chess_logger.info({move.uci() for move in all_legal_moves})
+        self.board.push_san(san_string)
+        self.current_turn = not self.current_turn
 
 
 if __name__ == "__main__":
@@ -152,17 +210,8 @@ if __name__ == "__main__":
     game.board.push_san("d8d5")
     game.board.push_san("f1c4")
 
-    chess_logger.info(f"{game._score_player_threat(WHITE)=}")
-    chess_logger.info(f"{game._score_player_threat(BLACK)=}")
-
-    chess_logger.info(f"{game._score_player_center_occupation(WHITE)=}")
-    chess_logger.info(f"{game._score_player_center_occupation(BLACK)=}")
-
-    chess_logger.info(f"{game._score_player_materials_value(WHITE)=}")
-    chess_logger.info(f"{game._score_player_materials_value(BLACK)=}")
-
-    chess_logger.info(f"{game.score(WHITE)=}")
-    chess_logger.info(f"{game.score(BLACK)=}")
-
     all_legal_moves = list(game.board.legal_moves)
     chess_logger.info(f"{game._best_provided_moves(all_legal_moves, game.board.turn)=}")
+    game.play_human_move("g8f6")
+    game.play_ai_move()
+    print(game.board.unicode())
